@@ -1,0 +1,16 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: go-echo-app
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      GOTENBERG_URL: "${GOTENBERG_URL}" 
+      GOTENBERG_IS_AUTH: ${GOTENBERG_IS_AUTH}
+      GOTENBERG_USERNAMES: ${GOTENBERG_USERNAME}
+      GOTENBERG_PASSWORD: ${GOTENBERG_PASSWORD}
+      PORT: "${PORT}"
