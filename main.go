@@ -3,22 +3,37 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
+	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/starwalkn/gotenberg-go-client/v8"
 	"github.com/starwalkn/gotenberg-go-client/v8/document"
 )
 
 func main() {
-	client, _ := gotenberg.NewClient("http://localhost:3001", http.DefaultClient)
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file: %v", err)
+	}
+
+	gotenbergURL := os.Getenv("GOTENBERG_URL")
+	port := os.Getenv("PORT")
+	if gotenbergURL == "" || port == "" {
+		log.Fatal("GOTENBERG_URL or PORT not set in .env")
+	}
+
+	client, _ := gotenberg.NewClient(gotenbergURL, http.DefaultClient)
 
 	e := echo.New()
 	e.GET("/", showForm)
 	e.POST("/generate-pdf", generatePDFHandler(client))
 
-	e.Logger.Fatal(e.Start(":8080"))
+	log.Printf("Starting server at port %s...", port)
+	e.Logger.Fatal(e.Start(":" + port))
 }
 
 func showForm(c echo.Context) error {
@@ -98,14 +113,17 @@ func generatePDF(client *gotenberg.Client, htmlContent string) ([]byte, error) {
 
 	req := gotenberg.NewHTMLRequest(doc)
 
+	gotenbergIsAuth := os.Getenv("GOTENBERG_IS_AUTH") == "true"
+	gotenbergUsername := os.Getenv("GOTENBERG_USERNAME")
+	gotenbergPassword := os.Getenv("GOTENBERG_PASSWORD")
+
+	if gotenbergIsAuth {
+		// Setting up basic auth (if needed).
+		req.UseBasicAuth(gotenbergUsername, gotenbergPassword)
+	}
+
 	req.PaperSize(gotenberg.A4)
 	req.Scale(0.75)
-	req.Margins(gotenberg.PageMargins{
-		Top:    20,
-		Right:  20,
-		Bottom: 20,
-		Left:   20,
-	})
 	req.SkipNetworkIdleEvent(true)
 
 	resp, err := client.Send(context.Background(), req)
@@ -114,7 +132,7 @@ func generatePDF(client *gotenberg.Client, htmlContent string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	pdfBytes, err := io.ReadAll(resp.Body)
+	pdfBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("gagal membaca response body: %w", err)
 	}
