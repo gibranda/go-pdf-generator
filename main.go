@@ -114,7 +114,7 @@ func generatePDF(client *gotenberg.Client, htmlContent string) ([]byte, error) {
 	req := gotenberg.NewHTMLRequest(doc)
 
 	gotenbergIsAuth := os.Getenv("GOTENBERG_IS_AUTH") == "true"
-	gotenbergUsername := os.Getenv("GOTENBERG_USERNAME")
+	gotenbergUsername := os.Getenv("GOTENBERG_USERNAMES")
 	gotenbergPassword := os.Getenv("GOTENBERG_PASSWORD")
 
 	if gotenbergIsAuth {
