@@ -1,0 +1,46 @@
+<!-- templates/document.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        @page {
+            margin: 0;
+            size: A4;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-image: url('data:image/jpeg;base64,{{.BackgroundImage}}');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            background-position: center;
+            min-height: 100vh;
+        }
+        .header {
+            padding: 20px;
+            margin-top: 150px;
+        }
+        .content {
+            padding: 20px;
+            min-height: 800px;
+        }
+        .footer {
+            padding: 20px;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        {{.Header}}
+    </div>
+    <div class="content">
+        {{.Body}}
+    </div>
+    <div class="footer">
+        {{.Footer}}
+    </div>
+</body>
+</html>

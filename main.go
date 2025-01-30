@@ -1,18 +1,35 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"text/template"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/starwalkn/gotenberg-go-client/v8"
 	"github.com/starwalkn/gotenberg-go-client/v8/document"
 )
+
+type Document struct {
+	Header          string `json:"header" form:"header"`
+	Body            string `json:"body" form:"body"`
+	Footer          string `json:"footer" form:"footer"`
+	BackgroundImage string `json:"-"`
+}
+
+type Response struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Data    []byte `json:"data,omitempty"`
+}
 
 func main() {
 	err := godotenv.Load()
@@ -20,122 +37,158 @@ func main() {
 		log.Fatalf("Error loading .env file: %v", err)
 	}
 
-	gotenbergURL := os.Getenv("GOTENBERG_URL")
+	e := echo.New()
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+
+	e.Static("/static", "static")
+
+	e.GET("/", handleHome)
+	e.POST("/generate-pdf", handleGeneratePDF)
+	e.POST("/preview-pdf", handlePreviewPDF)
+
 	port := os.Getenv("PORT")
-	if gotenbergURL == "" || port == "" {
+	log.Printf("Starting server at port %s...", port)
+	e.Logger.Fatal(e.Start(":" + port))
+}
+
+func loadBackgroundImage() (string, error) {
+	imgFile, err := os.ReadFile("static/kop.png")
+	if err != nil {
+		return "", fmt.Errorf("failed to read background image: %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(imgFile), nil
+}
+
+func handleHome(c echo.Context) error {
+	return c.File("templates/index.html")
+}
+
+func handleGeneratePDF(c echo.Context) error {
+	doc := new(Document)
+	if err := c.Bind(doc); err != nil {
+		return c.JSON(http.StatusBadRequest, Response{
+			Status:  "error",
+			Message: "Invalid input data",
+		})
+	}
+
+	// Validate input
+	if doc.Header == "" || doc.Body == "" {
+		return c.JSON(http.StatusBadRequest, Response{
+			Status:  "error",
+			Message: "Header and Body are required",
+		})
+	}
+
+	// Load background image
+	backgroundImage, err := loadBackgroundImage()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, Response{
+			Status:  "error",
+			Message: "Failed to load background image: " + err.Error(),
+		})
+	}
+	doc.BackgroundImage = backgroundImage
+
+	pdfBytes, err := generatePDF(doc)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, Response{
+			Status:  "error",
+			Message: "Failed to generate PDF: " + err.Error(),
+		})
+	}
+
+	return c.Blob(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func handlePreviewPDF(c echo.Context) error {
+	doc := new(Document)
+	if err := c.Bind(doc); err != nil {
+		return c.JSON(http.StatusBadRequest, Response{
+			Status:  "error",
+			Message: "Invalid input data",
+		})
+	}
+
+	// Validate input
+	if doc.Header == "" || doc.Body == "" {
+		return c.JSON(http.StatusBadRequest, Response{
+			Status:  "error",
+			Message: "Header and Body are required",
+		})
+	}
+
+	// Load background image
+	backgroundImage, err := loadBackgroundImage()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, Response{
+			Status:  "error",
+			Message: "Failed to load background image: " + err.Error(),
+		})
+	}
+	doc.BackgroundImage = backgroundImage
+
+	pdfBytes, err := generatePDF(doc)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, Response{
+			Status:  "error",
+			Message: "Failed to generate PDF preview: " + err.Error(),
+		})
+	}
+
+	return c.Blob(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func generatePDF(doc *Document) ([]byte, error) {
+	// Create HTML content
+	tmpl, err := template.ParseFiles("templates/document.html")
+	if err != nil {
+		return nil, fmt.Errorf("template parsing error: %v", err)
+	}
+
+	var htmlContent bytes.Buffer
+	if err := tmpl.Execute(&htmlContent, doc); err != nil {
+		return nil, fmt.Errorf("template execution error: %v", err)
+	}
+
+	gotenbergURL := os.Getenv("GOTENBERG_URL")
+	if gotenbergURL == "" {
 		log.Fatal("GOTENBERG_URL or PORT not set in .env")
 	}
 
 	client, _ := gotenberg.NewClient(gotenbergURL, http.DefaultClient)
 
-	e := echo.New()
-	e.GET("/", showForm)
-	e.POST("/generate-pdf", generatePDFHandler(client))
-
-	log.Printf("Starting server at port %s...", port)
-	e.Logger.Fatal(e.Start(":" + port))
-}
-
-func showForm(c echo.Context) error {
-	formHTML := `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Generate PDF from HTML</title>
-        <script src="https://cdn.ckeditor.com/ckeditor5/37.0.1/classic/ckeditor.js"></script>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                background-color: #f4f4f9;
-                padding: 20px;
-                text-align: center;
-            }
-            h1 {
-                color: #007BFF;
-            }
-            textarea {
-                width: 80%;
-                height: 300px;
-                margin-bottom: 20px;
-            }
-            button {
-                padding: 10px 20px;
-                background-color: #28a745;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-            }
-            button:hover {
-                background-color: #218838;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>Generate PDF from HTML</h1>
-        <form method="POST" action="/generate-pdf">
-            <label for="htmlContent">Enter HTML Content:</label><br><br>
-            <textarea id="htmlContent" name="htmlContent"></textarea><br><br>
-            <button type="submit">Generate PDF</button>
-        </form>
-        <script>
-            ClassicEditor
-                .create(document.querySelector('#htmlContent'))
-                .catch(error => {
-                    console.error(error);
-                });
-        </script>
-    </body>
-    </html>
-    `
-	return c.HTML(http.StatusOK, formHTML)
-}
-
-func generatePDFHandler(client *gotenberg.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		htmlContent := c.FormValue("htmlContent")
-
-		pdfBytes, err := generatePDF(client, htmlContent)
-		if err != nil {
-			return fmt.Errorf("Gagal mengonversi HTML ke PDF: %v", err)
-		}
-
-		c.Response().Header().Set("Content-Type", "application/pdf")
-		c.Response().Header().Set("Content-Disposition", "attachment; filename=output.pdf")
-		c.Response().Write(pdfBytes)
-
-		return nil
-	}
-}
-
-func generatePDF(client *gotenberg.Client, htmlContent string) ([]byte, error) {
-	doc, _ := document.FromString("doc.html", htmlContent)
-
-	req := gotenberg.NewHTMLRequest(doc)
-
 	gotenbergIsAuth := os.Getenv("GOTENBERG_IS_AUTH") == "true"
 	gotenbergUsername := os.Getenv("GOTENBERG_USERNAMES")
 	gotenbergPassword := os.Getenv("GOTENBERG_PASSWORD")
 
+	html, err := document.FromString("index.html", htmlContent.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create document: %v", err)
+	}
+
+	req := gotenberg.NewHTMLRequest(html)
+
 	if gotenbergIsAuth {
-		// Setting up basic auth (if needed).
 		req.UseBasicAuth(gotenbergUsername, gotenbergPassword)
 	}
 
 	req.PaperSize(gotenberg.A4)
-	req.Scale(0.75)
-	req.SkipNetworkIdleEvent(true)
+	req.Margins(gotenberg.NoMargins)
 
+	// Generate PDF
 	resp, err := client.Send(context.Background(), req)
 	if err != nil {
-		return nil, fmt.Errorf("gagal mengirim permintaan ke Gotenberg: %w", err)
+		return nil, fmt.Errorf("PDF generation error: %v", err)
 	}
-	defer resp.Body.Close()
 
 	pdfBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("gagal membaca response body: %w", err)
 	}
+	defer resp.Body.Close()
 
 	return pdfBytes, nil
 }

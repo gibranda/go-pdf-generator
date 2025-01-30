@@ -9,6 +9,8 @@ require (
 	github.com/starwalkn/gotenberg-go-client/v8 v8.8.1
 )
 
+require golang.org/x/time v0.8.0 // indirect
+
 require (
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/gommon v0.4.2 // indirect

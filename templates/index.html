@@ -1,0 +1,88 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Generator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- TinyMCE for WYSIWYG editor -->
+    <script src="https://cdn.tiny.cloud/1/dy70xjq3kodq2ltb7nb60cafsk0ljzyyvnnegpzcdm64jp8y/tinymce/6/tinymce.min.js"></script>
+    <script>
+        tinymce.init({
+            selector: '.wysiwyg',
+            height: 300,
+            plugins: 'lists link image code table',
+            toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright | bullist numlist outdent indent | link image | code'
+        });
+
+        async function generatePDF(preview = false) {
+            const header = tinymce.get('header').getContent();
+            const body = tinymce.get('body').getContent();
+            const footer = tinymce.get('footer').getContent();
+
+            const formData = new FormData();
+            formData.append('header', header);
+            formData.append('body', body);
+            formData.append('footer', footer);
+
+            try {
+                const endpoint = preview ? '/preview-pdf' : '/generate-pdf';
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to generate PDF');
+                }
+
+                const blob = await response.blob();
+                if (preview) {
+                    // Open PDF in new tab for preview
+                    const url = URL.createObjectURL(blob);
+                    window.open(url, '_blank');
+                } else {
+                    // Download PDF
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'document.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="form-container">
+            <h1>PDF Generator</h1>
+            <form id="pdfForm" onsubmit="return false;">
+                <div class="form-group">
+                    <label for="header">Header</label>
+                    <textarea id="header" name="header" class="wysiwyg"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="body">Body</label>
+                    <textarea id="body" name="body" class="wysiwyg"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="footer">Footer</label>
+                    <textarea id="footer" name="footer" class="wysiwyg"></textarea>
+                </div>
+                <div class="button-group">
+                    <button type="button" onclick="generatePDF(true)" class="preview-btn">Preview PDF</button>
+                    <button type="button" onclick="generatePDF(false)" class="download-btn">Download PDF</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
